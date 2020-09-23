@@ -58,7 +58,11 @@ def us_state_abbrev(states):
     'Wyoming': 'WY'
     }
     states = states.str.title()
-    states = states.apply(lambda x: state_dict[x])
+    def get_state(x):
+        if x not in state_dict:
+            return ''
+        return state_dict[x]
+    states = states.apply(lambda x: get_state(x))
     return states
 
 def return_apr_dict(action):
@@ -109,4 +113,48 @@ def gen_agromanager(base, dicton, seed, costs):
         total_cost+=totcostaction
         if res!=None: 
             aux[0][sd]['TimedEvents'].append(res)
-    return aux, total_cost    
+    return aux, total_cost  
+
+# Helper functions for completing an experiment
+import glob
+def complete_experiment(simout_dir):
+    outfiles = glob.glob(f'{simout_dir}/*.csv')
+    for i, file in enumerate(outfiles):
+        df = pd.read_csv(file)
+        if i == 0:
+            simout = df.copy()
+        else:
+            simout = simout.append(df)
+    simout = simout.rename(columns={'Unnamed: 0' : 'INDEX'})
+    simout = simout.set_index(['INDEX'])
+    simout = simout.sort_index()
+    for i in range(len(soil_subset)):
+        if i not in simout.index:
+            print(i)
+            soil_row = soil_subset.loc[i]
+            for col in soil_cols[:-1]:
+                soild[col] = soil_row[col]
+            latitude, longitude = soil_row['latitude'], soil_row['longitude']
+            results = run_wofost(latitude, longitude, cropd, sited, soild, config)
+            df_results = pd.DataFrame(results, index=[i])
+            df.index.name = 'INDEX'
+            simout = simout.append(df_results)
+    simout = simout.sort_index()
+    return simout
+
+def rerun_wofost(simout):
+    # Rerun Wofost for missing weather data
+    empty_rows = simout['DVS'].isnull()
+    empty_idx = empty_rows.index[empty_rows]
+    for i in empty_idx:
+        print(i)
+        soil_row = soil_subset.loc[i]
+        for col in soil_cols[:-1]:
+            soild[col] = soil_row[col]
+        latitude, longitude = soil_row['latitude'], soil_row['longitude']
+        results = run_wofost(latitude, longitude, cropd, sited, soild, config)
+        df = pd.DataFrame(results, index=[i])
+        df.index.name = 'INDEX'
+        simout.loc[i] = df.loc[i]
+        #simout = simout.append(df)
+    simout.describe() 
